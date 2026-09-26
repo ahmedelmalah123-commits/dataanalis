@@ -1,0 +1,523 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================
+// AUTH & USERS
+// ============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified DateTime?
+  passwordHash  String?
+  authProvider  String?   // "email" | "google"
+  image         String?
+  isAdmin       Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  lastActive    DateTime  @default(now())
+
+  // Relations
+  profile             Profile?
+  accounts            Account[]
+  sessions            Session[]
+  userProgress        UserProgress[]
+  quizAttempts        QuizAttempt[]
+  exerciseSubmissions ExerciseSubmission[]
+  missionSubmissions  MissionSubmission[]
+  projectSubmissions  ProjectSubmission[]
+  notes               Note[]
+  bookmarks           Bookmark[]
+  userAchievements    UserAchievement[]
+  jobApplications     JobApplication[]
+  aiInteractions      AiInteraction[]
+  analyticsEvents     AnalyticsEvent[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  @@map("password_reset_tokens")
+}
+
+model Profile {
+  userId       String      @id
+  careerGoal   String      // "data_analyst" | "bi_analyst" | "business_analyst"
+  startDate    DateTime    @default(now())
+  currentDay   Int         @default(1)
+  streak       Int         @default(0)
+  longestStreak Int        @default(0)
+  totalXp      Int         @default(0)
+  avatarUrl    String?
+  country      String      @default("EG")
+  timezone     String      @default("Africa/Cairo")
+  onboardingDone Boolean   @default(false)
+  updatedAt    DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+// ============================================================
+// CURRICULUM
+// ============================================================
+
+model Phase {
+  id          Int      @id @default(autoincrement())
+  number      Int      @unique
+  name        String
+  description String
+  colorHex    String
+  startDay    Int
+  endDay      Int
+  createdAt   DateTime @default(now())
+
+  days Day[]
+
+  @@map("phases")
+}
+
+model Day {
+  id               Int      @id @default(autoincrement())
+  dayNumber        Int      @unique
+  phaseId          Int
+  title            String
+  subtitle         String?
+  skill            String   // Skill enum value
+  estimatedMinutes Int      @default(45)
+  difficulty       String   @default("beginner")
+  xpReward         Int      @default(100)
+  status           String   @default("draft") // "draft" | "published" | "archived"
+  version          Int      @default(1)
+  authorId         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  phase       Phase          @relation(fields: [phaseId], references: [id])
+  lesson      Lesson?
+  exercises   Exercise[]
+  quizQuestions QuizQuestion[]
+  mission     Mission?
+  userProgress UserProgress[]
+  missionSubmissions MissionSubmission[]
+  notes       Note[]
+  bookmarks   Bookmark[]
+
+  @@index([phaseId])
+  @@index([status])
+  @@map("days")
+}
+
+model Lesson {
+  id                String   @id @default(cuid())
+  dayId             Int      @unique
+  learningObjective String
+  sections          Json     // LessonSection[]
+  prerequisites     Int[]    @default([])
+  nextDayTeaser     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  day Day @relation(fields: [dayId], references: [id], onDelete: Cascade)
+
+  @@map("lessons")
+}
+
+model Exercise {
+  id             String   @id @default(cuid())
+  dayId          Int
+  orderIndex     Int      @default(0)
+  type           String   // ExerciseType
+  title          String
+  instructions   String   @db.Text
+  datasetRef     String?
+  starterCode    String?  @db.Text
+  solution       String?  @db.Text
+  validationType String   @default("manual")
+  hints          Json     @default("[]") // string[]
+  difficulty     String   @default("beginner")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  day         Day                  @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  submissions ExerciseSubmission[]
+
+  @@index([dayId])
+  @@map("exercises")
+}
+
+model QuizQuestion {
+  id           String   @id @default(cuid())
+  dayId        Int
+  orderIndex   Int      @default(0)
+  type         String   // QuestionType
+  question     String   @db.Text
+  options      Json?    // string[] for MCQ types
+  correctAnswer String  @db.Text
+  explanation  String   @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  day      Day           @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  attempts QuizAttempt[]
+
+  @@index([dayId])
+  @@map("quiz_questions")
+}
+
+model Mission {
+  id             String   @id @default(cuid())
+  dayId          Int      @unique
+  title          String
+  type           String   // MissionType
+  description    String   @db.Text
+  tasks          Json     @default("[]") // string[]
+  datasetRef     String?
+  submissionType String   // SubmissionType
+  evaluationType String   @default("self_check")
+  aiGuardrail    String   @default("hint_only")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  day         Day                @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  submissions MissionSubmission[]
+
+  @@map("missions")
+}
+
+// ============================================================
+// PROGRESS
+// ============================================================
+
+model UserProgress {
+  id              String    @id @default(cuid())
+  userId          String
+  dayId           Int
+  status          String    @default("locked") // DayStatus
+  lessonReadPct   Int       @default(0)
+  quizPassed      Boolean   @default(false)
+  quizBestScore   Int       @default(0)
+  quizAttempts    Int       @default(0)
+  exercisesDone   Int       @default(0)
+  missionSubmitted Boolean  @default(false)
+  completedAt     DateTime?
+  lastAccessed    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day  Day  @relation(fields: [dayId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dayId])
+  @@index([userId])
+  @@index([dayId])
+  @@map("user_progress")
+}
+
+model QuizAttempt {
+  id         String   @id @default(cuid())
+  userId     String
+  questionId String
+  dayId      Int
+  answer     String   @db.Text
+  correct    Boolean
+  score      Int      @default(0) // overall score for this attempt set
+  attemptNum Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([questionId])
+  @@map("quiz_attempts")
+}
+
+model ExerciseSubmission {
+  id           String   @id @default(cuid())
+  userId       String
+  exerciseId   String
+  answer       String   @db.Text
+  correct      Boolean  @default(false)
+  hintsUsed    Int      @default(0)
+  usedSolution Boolean  @default(false)
+  submittedAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([exerciseId])
+  @@map("exercise_submissions")
+}
+
+model MissionSubmission {
+  id             String   @id @default(cuid())
+  userId         String
+  missionId      String
+  dayId          Int
+  submissionType String
+  content        String?  @db.Text
+  fileUrl        String?
+  checklistData  Json?
+  submittedAt    DateTime @default(now())
+  isFinal        Boolean  @default(false)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  day     Day     @relation(fields: [dayId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([missionId])
+  @@map("mission_submissions")
+}
+
+// ============================================================
+// PROJECTS
+// ============================================================
+
+model Project {
+  id              String   @id @default(cuid())
+  number          Int      @unique
+  title           String
+  businessContext String   @db.Text
+  scenario        String   @db.Text
+  tools           String[] @default([])
+  phaseStart      Int
+  phaseEnd        Int
+  status          String   @default("draft")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  submissions ProjectSubmission[]
+
+  @@map("projects")
+}
+
+model ProjectSubmission {
+  id               String    @id @default(cuid())
+  userId           String
+  projectId        String
+  taskCompletions  Json      @default("{}") // Record<string, boolean>
+  fileUrls         Json      @default("{}") // Record<string, string>
+  writtenReflection String?  @db.Text
+  selfScore        Int?
+  submittedAt      DateTime?
+  submissionStatus String    @default("draft") // "draft" | "submitted" | "reviewed"
+  rubricScore      Int?
+  feedback         String?   @db.Text
+  updatedAt        DateTime  @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([userId])
+  @@map("project_submissions")
+}
+
+// ============================================================
+// DATASETS
+// ============================================================
+
+model Dataset {
+  id          String   @id @default(cuid())
+  refName     String   @unique
+  displayName String
+  description String   @db.Text
+  fileUrl     String
+  fileFormat  String   // "csv" | "parquet" | "xlsx"
+  schemaJson  Json?
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("datasets")
+}
+
+// ============================================================
+// NOTES & BOOKMARKS
+// ============================================================
+
+model Note {
+  id            String   @id @default(cuid())
+  userId        String
+  dayId         Int
+  content       String   @db.Text
+  selectionText String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day  Day  @relation(fields: [dayId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notes")
+}
+
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  dayId     Int
+  sectionId String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day  Day  @relation(fields: [dayId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dayId, sectionId])
+  @@index([userId])
+  @@map("bookmarks")
+}
+
+// ============================================================
+// ACHIEVEMENTS
+// ============================================================
+
+model Achievement {
+  id          String @id @default(cuid())
+  key         String @unique
+  name        String
+  description String
+  icon        String // emoji or icon name
+  xpValue     Int    @default(50)
+
+  userAchievements UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  userId        String
+  achievementId String
+  earnedAt      DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@id([userId, achievementId])
+  @@index([userId])
+  @@map("user_achievements")
+}
+
+// ============================================================
+// JOB LAUNCH
+// ============================================================
+
+model JobApplication {
+  id             String    @id @default(cuid())
+  userId         String
+  company        String
+  jobTitle       String
+  source         String?
+  appliedDate    DateTime?
+  status         String    @default("wishlist")
+  contactName    String?
+  notes          String?   @db.Text
+  nextAction     String?
+  nextActionDate DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("job_applications")
+}
+
+// ============================================================
+// AI TUTOR
+// ============================================================
+
+model AiInteraction {
+  id          String   @id @default(cuid())
+  userId      String
+  dayId       Int?
+  context     Json?    // AIContext object
+  userMessage String   @db.Text
+  aiResponse  String   @db.Text
+  guardrail   String   @default("hint_only")
+  tokens      Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("ai_interactions")
+}
+
+// ============================================================
+// ANALYTICS
+// ============================================================
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  userId     String?
+  eventType  String   // e.g. "lesson_started", "quiz_passed", "day_completed"
+  dayId      Int?
+  metadata   Json?
+  occurredAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([occurredAt])
+  @@map("analytics_events")
+}
